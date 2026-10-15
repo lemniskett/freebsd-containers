@@ -1,0 +1,73 @@
+name: Build images
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  discover:
+    name: Find images
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.find.outputs.images }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Every top-level directory with a Dockerfile is an image≈
+      - id: find
+        run: |
+          images=$(find . -mindepth 2 -maxdepth 2 -name Dockerfile -not -path './.*' \
+            | cut -d/ -f2 | sort | jq -Rnc '[inputs]')
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "Found: $images"
+
+  build:
+    name: ${{ matrix.image }}
+    needs: discover
+    if: needs.discover.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.discover.outputs.images) }}
+    env:
+      IMAGE: ${{ matrix.image }}
+      PUSH: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      REGISTRY_USER: ${{ github.actor }}
+      REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          envs: IMAGE PUSH REGISTRY_USER REGISTRY_PASSWORD
+          sync: rsync
+          copyback: false
+          # The VM reboots after prepare, so the fdescfs mount goes in fstzab
+          cache-after-prepare: true
+          prepare: |
+            pkg install -y podman-suite
+            echo 'fdesc /dev/fd fdescfs rw 0 0' >> /etc/fstab
+            mount /dev/fd
+            # containers-storage defaults to ZFS; fall back to vfs on UFS images
+            if zfs list -H -o name zroot >/dev/null 2>&1; then
+              zfs create -o mountpoint=/var/db/containers zroot/containers
+            else
+              sed -I '' -e 's/driver = "zfs"/driver = "vfs"/' /usr/local/etc/containers/storage.conf
+            fi
+          run: |
+            sh scripts/build.sh "$IMAGE"
