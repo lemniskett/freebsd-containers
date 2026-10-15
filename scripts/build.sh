@@ -3,8 +3,8 @@
 #
 #   $ scripts/build.sh pocketbase
 #
-# Builds <template path>/Dockerfile with podman on a FreeBSD host and tags it
-# <registry>/<name>:latest, plus <registry>/<name>:<VERSION> when the Dockerfile
+# Builds <template path>/Containerfile with podman on a FreeBSD host and tags it
+# <registry>/<name>:latest, plus <registry>/<name>:<VERSION> when the Containerfile
 # has a VERSION= build arg. With PUSH=true, logs in with REGISTRY_USER and
 # REGISTRY_PASSWORD and pushes every tag.
 #
@@ -26,7 +26,7 @@ registry=$REGISTRY
 image="$registry/$name"
 
 # First "VERSION=..." assignment, with or without a leading ARG (not GO_VERSION= etc.)
-version=$(sed -nE 's/^[[:space:]]*(ARG[[:space:]]+)?VERSION=([^[:space:]\\]+).*/\2/p' "$dir/Dockerfile" | head -n 1)
+version=$(sed -nE 's/^[[:space:]]*(ARG[[:space:]]+)?VERSION=([^[:space:]\\]+).*/\2/p' "$dir/Containerfile" | head -n 1)
 
 set -- -t "$image:latest"
 if [ -n "$version" ]; then
@@ -40,7 +40,7 @@ if [ -n "${GITHUB_SHA:-}" ]; then
 fi
 
 # Host networking lets RUN steps reach the internet without setting up pf NAT
-podman build --network=host "$@" "$dir"
+podman build --network=host -f "$dir/Containerfile" "$@" "$dir"
 
 if [ "${PUSH:-false}" = true ]; then
     printf '%s' "${REGISTRY_PASSWORD:?}" | podman login --username "${REGISTRY_USER:?}" --password-stdin "${registry%%/*}"

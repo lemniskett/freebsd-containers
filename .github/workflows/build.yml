@@ -21,14 +21,18 @@ jobs:
       images: ${{ steps.find.outputs.images }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      # Every top-level directory with a Dockerfile is an image≈
+      # Only images whose directory changed since the PR base or the previous push;
+      # manual runs (no base) build everything
       - id: find
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          images=$(find . -mindepth 2 -maxdepth 2 -name Dockerfile -not -path './.*' \
-            | cut -d/ -f2 | sort | jq -Rnc '[inputs]')
+          images=$(sh scripts/changed-images.sh "$BASE" | jq -Rnc '[inputs | select(length > 0)]')
           echo "images=$images" >> "$GITHUB_OUTPUT"
-          echo "Found: $images"
+          echo "Building: $images"
 
   build:
     name: ${{ matrix.image }}

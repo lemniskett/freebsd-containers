@@ -1,0 +1,65 @@
+ARG VERSION=1.2.0
+
+FROM docker.io/freebsd/freebsd-toolchain:15.1 AS builder
+
+ARG VERSION
+ARG BUN_VERSION=1.4.3
+
+ENV CI=true \
+    ASSUME_ALWAYS_YES=yes
+
+# Bun runs steamidled in the final image
+RUN set -ex; \
+      fetch -o /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-freebsd-x64.zip; \
+      fetch -o /tmp/SHASUMS256.txt https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt; \
+      expected=$(grep ' bun-freebsd-x64.zip$' /tmp/SHASUMS256.txt | cut -d' ' -f1); \
+      test -n "${expected}"; \
+      sha256 -c "${expected}" /tmp/bun.zip; \
+      tar -xf /tmp/bun.zip -C /tmp; \
+      mkdir -p /app/bin; \
+      install -m 755 /tmp/bun-freebsd-x64/bun /app/bin/bun
+
+# Build from source with upstream's own toolchain (Node + pnpm, frozen lockfile)
+RUN set -ex; \
+      pkg install -y node24 npm-node24; \
+      npm install -g pnpm@10
+RUN set -ex; \
+      fetch -o /tmp/src.tar.gz https://github.com/louisraetz/steamidled/archive/refs/tags/v${VERSION}.tar.gz; \
+      mkdir -p /src; \
+      tar -xzf /tmp/src.tar.gz -C /src --strip-components=1
+WORKDIR /src
+RUN set -ex; \
+      pnpm install --frozen-lockfile; \
+      pnpm build; \
+      pnpm prune --prod
+
+RUN set -ex; \
+      fetch -o /tmp/su-exec.tar.gz https://github.com/ncopa/su-exec/archive/refs/heads/master.tar.gz; \
+      mkdir -p /tmp/su-exec; \
+      tar -xzf /tmp/su-exec.tar.gz -C /tmp/su-exec --strip-components=1; \
+      cc -Wall -O2 -o /app/bin/su-exec /tmp/su-exec/su-exec.c
+
+FROM docker.io/freebsd/freebsd-runtime:15.1 AS runner
+
+ENV PUID=9772 \
+    PGID=9772 \
+    NODE_ENV=production
+
+RUN set -ex; \
+      pw groupadd -n app -g ${PGID}; \
+      pw useradd -n app -u ${PUID} -g app -d /data -s /sbin/nologin; \
+      mkdir -p /data; \
+      chown app:app /data
+
+COPY --from=builder /app/bin/bun /usr/local/bin/bun
+COPY --from=builder /app/bin/su-exec /usr/local/bin/su-exec
+COPY --from=builder /src/package.json /app/package.json
+COPY --from=builder /src/dist /app/dist
+COPY --from=builder /src/node_modules /app/node_modules
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
+
+# Config is kept in $HOME/.steam-idler, i.e. /data/.steam-idler
+WORKDIR /data
+VOLUME /data
+ENTRYPOINT [ "/entrypoint.sh" ]
+CMD [ "--headless" ]
