@@ -8,7 +8,7 @@
 # has a VERSION= build arg. With PUSH=true, logs in with REGISTRY_USER and
 # REGISTRY_PASSWORD and pushes every tag.
 #
-# REGISTRY defaults to ghcr.io/<GITHUB_REPOSITORY_OWNER>.
+# REGISTRY defaults to ghcr.io/<GITHUB_REPOSITORY>, e.g. ghcr.io/lemniskett/freebsd-containers.
 set -eu
 
 if [ -z "${1:-}" ]; then
@@ -18,7 +18,11 @@ fi
 
 dir=${1%/}
 name=$(basename "$dir")
-registry=${REGISTRY:-ghcr.io/$(printf '%s' "${GITHUB_REPOSITORY_OWNER:?set REGISTRY or GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')}
+if [ -z "${REGISTRY:-}" ]; then
+    : "${GITHUB_REPOSITORY:?set REGISTRY or GITHUB_REPOSITORY}"
+    REGISTRY=ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+fi
+registry=$REGISTRY
 image="$registry/$name"
 
 # First "VERSION=..." assignment, with or without a leading ARG (not GO_VERSION= etc.)
