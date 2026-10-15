@@ -1,6 +1,7 @@
+ARG VERSION=v0.40.4
 FROM docker.io/freebsd/freebsd-toolchain:15.1 AS builder
 
-ARG VERSION=v0.40.4 \
+ARG VERSION \
       GO_VERSION=1.27.1 \
       GOBIN=/app
 

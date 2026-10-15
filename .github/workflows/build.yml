@@ -57,7 +57,7 @@ jobs:
           envs: IMAGE PUSH REGISTRY_USER REGISTRY_PASSWORD
           sync: rsync
           copyback: false
-          # The VM reboots after prepare, so the fdescfs mount goes in fstzab
+          # The VM reboots after prepare, so the fdescfs mount goes in fstab
           cache-after-prepare: true
           prepare: |
             pkg install -y podman-suite
