@@ -17,16 +17,19 @@ case "$PUID$PGID" in
 esac
 
 # Remap group, then user, only if they differ from the current values.
-# -o allows IDs already taken in the image (e.g. PGID=20 is "staff" on FreeBSD).
-if [ "$(pw groupshow app | cut -d: -f3)" != "$PGID" ]; then
-    pw groupmod app -g "$PGID" -o
+# freebsd-runtime has no cut/stat/awk, so parse with the shell and find.
+# groupmod/usermod don't reject IDs already in use (e.g. PGID=20 is "staff").
+group=$(pw groupshow app)    # app:*:<gid>:<members>
+gid=${group#*:*:}
+if [ "${gid%%:*}" != "$PGID" ]; then
+    pw groupmod app -g "$PGID"
 fi
 if [ "$(id -u app)" != "$PUID" ] || [ "$(id -g app)" != "$PGID" ]; then
-    pw usermod app -u "$PUID" -g "$PGID" -o
+    pw usermod app -u "$PUID" -g app
 fi
 
 # Fix ownership of /data only when the top level is wrong (avoids slow recursive chown on every start)
-if [ "$(stat -f %u:%g /data)" != "$PUID:$PGID" ]; then
+if [ -z "$(find /data -maxdepth 0 -user "$PUID" -group "$PGID")" ]; then
     chown -R "$PUID:$PGID" /data
 fi
 
